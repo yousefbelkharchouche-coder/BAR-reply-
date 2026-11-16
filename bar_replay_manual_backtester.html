@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FX Replay Pro - Manual Backtesting Terminal</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            900: '#090D16',
+                            800: '#111827',
+                            700: '#1F2937',
+                            600: '#374151',
+                        },
+                        brand: {
+                            cyan: '#06b6d4',
+                            green: '#10b981',
+                            red: '#ef4444',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lightweight Charts CDN -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom scrollbar for trade journal */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111827;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4B5563;
+        }
+    </style>
+</head>
+<body class="bg-dark-900 text-gray-200 font-sans h-screen flex flex-col overflow-hidden select-none">
+
+    <!-- Top Navigation Header -->
+    <header class="h-14 bg-dark-800 border-b border-gray-800 flex items-center justify-between px-4 z-20 shrink-0">
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2 text-cyan-400 font-bold text-lg tracking-wider">
+                <i data-lucide="line-chart" class="w-6 h-6"></i>
+                <span>REPLAY<span class="text-white">PRO</span></span>
+            </div>
+            <div class="h-5 w-px bg-gray-700"></div>
+
+            <!-- Asset Selector -->
+            <select id="assetSelect" class="bg-dark-700 border border-gray-700 rounded px-3 py-1 text-sm font-semibold text-white focus:outline-none focus:border-cyan-500">
+                <option value="NQ">NQ1! (Nasdaq Futures)</option>
+                <option value="ES">ES1! (S&P 500 Futures)</option>
+                <option value="EURUSD">EUR/USD (Forex)</option>
+                <option value="BTCUSD">BTC/USD (Crypto)</option>
+            </select>
+
+            <!-- Timeframe Selector -->
+            <div class="flex bg-dark-700 p-1 rounded border border-gray-700 text-xs font-medium text-gray-400">
+                <button onclick="changeTimeframe('1m')" id="tf-1m" class="tf-btn px-2.5 py-1 rounded hover:text-white transition active">1m</button>
+                <button onclick="changeTimeframe('5m')" id="tf-5m" class="tf-btn px-2.5 py-1 rounded hover:text-white transition">5m</button>
+                <button onclick="changeTimeframe('15m')" id="tf-15m" class="tf-btn px-2.5 py-1 rounded hover:text-white transition">15m</button>
+                <button onclick="changeTimeframe('1h')" id="tf-1h" class="tf-btn px-2.5 py-1 rounded hover:text-white transition">1h</button>
+            </div>
+        </div>
+
+        <!-- Replay Controls Toolbar -->
+        <div class="flex items-center space-x-3 bg-dark-700 border border-gray-700 rounded-lg px-3 py-1.5 shadow-md">
+            <button id="resetBtn" onclick="resetReplay()" title="Reset to Start" class="hover:text-cyan-400 text-gray-300 transition">
+                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+            </button>
+            <div class="h-4 w-px bg-gray-600"></div>
+            <button id="stepBtn" onclick="stepForward()" title="Step 1 Bar (Hotkey: Arrow Right)" class="hover:text-cyan-400 text-gray-300 transition">
+                <i data-lucide="skip-forward" class="w-4 h-4"></i>
+            </button>
+            <button id="playPauseBtn" onclick="togglePlay()" class="bg-cyan-500 hover:bg-cyan-400 text-dark-900 font-bold p-1.5 rounded-full transition shadow">
+                <i data-lucide="play" id="playIcon" class="w-4 h-4 fill-current"></i>
+            </button>
+            <div class="h-4 w-px bg-gray-600"></div>
+            
+            <!-- Speed Control -->
+            <div class="flex items-center space-x-1 text-xs">
+                <span class="text-gray-400">Speed:</span>
+                <select id="speedSelect" onchange="changeSpeed(this.value)" class="bg-dark-800 text-cyan-400 font-semibold px-2 py-0.5 rounded border border-gray-600 focus:outline-none">
+                    <option value="1000">0.5x</option>
+                    <option value="500" selected>1.0x</option>
+                    <option value="250">2.0x</option>
+                    <option value="100">5.0x</option>
+                    <option value="30">10.0x</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Account Balance Overview -->
+        <div class="flex items-center space-x-6 text-sm">
+            <div>
+                <span class="text-xs text-gray-400 block">Balance</span>
+                <span id="accountBalance" class="font-bold text-white">$100,000.00</span>
+            </div>
+            <div>
+                <span class="text-xs text-gray-400 block">Equity</span>
+                <span id="accountEquity" class="font-bold text-cyan-400">$100,000.00</span>
+            </div>
+            <button onclick="resetAccount()" title="Reset Account Capital" class="text-xs text-gray-500 hover:text-red-400 transition underline">
+                Reset App
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace (Chart + Execution Panel) -->
+    <div class="flex-1 flex overflow-hidden relative">
+        
+        <!-- Left: Interactive Chart Container -->
+        <div class="flex-1 flex flex-col relative bg-dark-900">
+            <!-- Chart Container -->
+            <div id="chartContainer" class="w-full flex-1 relative"></div>
+            
+            <!-- Floating Overlay Information Bar -->
+            <div class="absolute top-3 left-3 bg-dark-800/80 backdrop-blur border border-gray-700/60 rounded px-3 py-1.5 text-xs flex space-x-4 pointer-events-none z-10 shadow-lg">
+                <span id="ohlcTimestamp" class="text-gray-400">Time: --</span>
+                <span id="ohlcOpen" class="text-gray-300">O: --</span>
+                <span id="ohlcHigh" class="text-green-400">H: --</span>
+                <span id="ohlcLow" class="text-red-400">L: --</span>
+                <span id="ohlcClose" class="text-white">C: --</span>
+            </div>
+
+            <!-- Bottom Panel: Trade Journal & Performance -->
+            <div class="h-56 bg-dark-800 border-t border-gray-800 flex flex-col shrink-0">
+                <!-- Tabs and Summary Metrics Header -->
+                <div class="h-10 border-b border-gray-700 flex items-center justify-between px-4 bg-dark-900/50">
+                    <div class="flex items-center space-x-6">
+                        <span class="text-xs font-bold tracking-wider text-cyan-400 uppercase flex items-center gap-1.5">
+                            <i data-lucide="book-open" class="w-4 h-4"></i> Trade Journal
+                        </span>
+                        <div class="flex space-x-4 text-xs font-semibold">
+                            <span class="text-gray-400">Trades: <span id="statTotalTrades" class="text-white">0</span></span>
+                            <span class="text-gray-400">Win Rate: <span id="statWinRate" class="text-green-400">0.0%</span></span>
+                            <span class="text-gray-400">Profit Factor: <span id="statProfitFactor" class="text-white">0.00</span></span>
+                            <span class="text-gray-400">Max DD: <span id="statMaxDD" class="text-red-400">0.0%</span></span>
+                            <span class="text-gray-400">Net PnL: <span id="statNetPnL" class="text-white">$0.00</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Log Table -->
+                <div class="flex-1 overflow-y-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-dark-700/60 text-gray-400 sticky top-0 uppercase tracking-wider">
+                            <tr>
+                                <th class="py-2 px-3">#</th>
+                                <th class="py-2 px-3">Type</th>
+                                <th class="py-2 px-3">Entry Price</th>
+                                <th class="py-2 px-3">Stop Loss</th>
+                                <th class="py-2 px-3">Take Profit</th>
+                                <th class="py-2 px-3">Exit Price</th>
+                                <th class="py-2 px-3">PnL ($)</th>
+                                <th class="py-2 px-3">Result</th>
+                                <th class="py-2 px-3">R-Multiple</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeLogTable" class="divide-y divide-gray-800 font-mono text-gray-300">
+                            <tr>
+                                <td colspan="9" class="text-center py-8 text-gray-500 font-sans italic">
+                                    No trades taken yet. Execute positions using the panel on the right.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Trading Order Execution Panel -->
+        <aside class="w-80 bg-dark-800 border-l border-gray-800 flex flex-col justify-between p-4 z-10 shrink-0">
+            <div class="space-y-4">
+                <div class="flex items-center justify-between border-b border-gray-700 pb-2">
+                    <h2 class="font-bold text-sm text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                        <i data-lucide="sliders" class="w-4 h-4 text-cyan-400"></i> Execution Desk
+                    </h2>
+                    <span id="currentMarketPrice" class="font-mono text-xs text-cyan-400 font-bold bg-dark-900 px-2 py-1 rounded border border-gray-700">0.00</span>
+                </div>
+
+                <!-- Position Type Switcher (Long/Short) -->
+                <div class="grid grid-cols-2 gap-2 bg-dark-900 p-1 rounded-lg border border-gray-700">
+                    <button id="posLongBtn" onclick="setPositionType('BUY')" class="py-2 rounded font-bold text-sm transition flex items-center justify-center space-x-1 bg-green-600 text-white shadow">
+                        <i data-lucide="trending-up" class="w-4 h-4"></i>
+                        <span>BUY / LONG</span>
+                    </button>
+                    <button id="posShortBtn" onclick="setPositionType('SELL')" class="py-2 rounded font-bold text-sm transition flex items-center justify-center space-x-1 text-gray-400 hover:text-white">
+                        <i data-lucide="trending-down" class="w-4 h-4"></i>
+                        <span>SELL / SHORT</span>
+                    </button>
+                </div>
+
+                <!-- Risk Management Sizing Model -->
+                <div class="space-y-3 bg-dark-900/60 p-3 rounded-lg border border-gray-700/60 text-xs">
+                    <div class="flex justify-between items-center text-gray-300 font-medium">
+                        <span>Risk Type</span>
+                        <div class="flex space-x-2">
+                            <label class="cursor-pointer flex items-center gap-1">
+                                <input type="radio" name="riskType" value="percent" checked onchange="updateCalculatedSizing()" class="accent-cyan-500"> % Account
+                            </label>
+                            <label class="cursor-pointer flex items-center gap-1">
+                                <input type="radio" name="riskType" value="fixed" onchange="updateCalculatedSizing()" class="accent-cyan-500"> Fixed $
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-gray-400 mb-1">
+                            <label for="riskInputValue">Risk Value</label>
+                            <span id="riskCalculatedDollars" class="text-cyan-400 font-mono">$1,000.00</span>
+                        </div>
+                        <input type="number" id="riskInputValue" value="1.0" step="0.1" min="0.1" oninput="updateCalculatedSizing()" class="w-full bg-dark-700 border border-gray-600 rounded px-2.5 py-1.5 text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+
+                    <!-- Stop Loss Input (Points/Ticks) -->
+                    <div>
+                        <div class="flex justify-between text-gray-400 mb-1">
+                            <label for="slPoints">Stop Loss (Points)</label>
+                            <span id="slPriceCalculated" class="text-red-400 font-mono">SL: 0.00</span>
+                        </div>
+                        <input type="number" id="slPoints" value="20" step="1" min="1" oninput="updateCalculatedSizing()" class="w-full bg-dark-700 border border-gray-600 rounded px-2.5 py-1.5 text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+
+                    <!-- Take Profit Input (Points/Ticks) -->
+                    <div>
+                        <div class="flex justify-between text-gray-400 mb-1">
+                            <label for="tpPoints">Take Profit (Points)</label>
+                            <span id="tpPriceCalculated" class="text-green-400 font-mono">TP: 0.00</span>
+                        </div>
+                        <input type="number" id="tpPoints" value="40" step="1" min="1" oninput="updateCalculatedSizing()" class="w-full bg-dark-700 border border-gray-600 rounded px-2.5 py-1.5 text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+
+                    <!-- Risk:Reward Ratio Display -->
+                    <div class="pt-2 border-t border-gray-700 flex justify-between items-center text-xs">
+                        <span class="text-gray-400">Risk : Reward</span>
+                        <span id="rrRatioDisplay" class="font-bold text-cyan-400 font-mono text-sm">1 : 2.00</span>
+                    </div>
+                </div>
+
+                <!-- Position Execution Button -->
+                <button id="executeOrderBtn" onclick="executeMarketOrder()" class="w-full py-3 rounded-lg font-extrabold text-sm tracking-wider uppercase transition shadow-lg bg-green-600 hover:bg-green-500 text-white flex items-center justify-center space-x-2">
+                    <i data-lucide="zap" class="w-4 h-4 fill-current"></i>
+                    <span>Place Market Order</span>
+                </button>
+            </div>
+
+            <!-- Active Position Live Box -->
+            <div id="activePositionBox" class="hidden bg-dark-900 border border-cyan-500/50 rounded-lg p-3 text-xs space-y-2 relative overflow-hidden">
+                <div class="absolute top-0 right-0 left-0 h-1 bg-cyan-500"></div>
+                <div class="flex justify-between items-center">
+                    <span id="activePosType" class="font-bold px-2 py-0.5 rounded text-white text-[10px] uppercase bg-green-600">LONG</span>
+                    <span id="activePosUnrealizedPnL" class="font-mono font-bold text-green-400">$0.00 (0.0R)</span>
+                </div>
+                <div class="space-y-1 font-mono text-[11px] text-gray-300">
+                    <div class="flex justify-between"><span>Entry:</span><span id="activePosEntry">0.00</span></div>
+                    <div class="flex justify-between"><span>Stop Loss:</span><span id="activePosSL" class="text-red-400">0.00</span></div>
+                    <div class="flex justify-between"><span>Take Profit:</span><span id="activePosTP" class="text-green-400">0.00</span></div>
+                </div>
+                <button onclick="closeActivePosition('Manual Market Close')" class="w-full mt-1 bg-red-600/80 hover:bg-red-600 text-white font-bold py-1.5 rounded transition">
+                    Market Close Position
+                </button>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Application Engine Logic -->
+    <script>
+        // App State Variables
+        let chart, candlestickSeries;
+        let activeLines = [];
+        let historicalRawData = [];
+        let replayedBars = [];
+        let currentIndex = 0;
+        let isPlaying = false;
+        let playInterval = null;
+        let speedMs = 500;
+        let timeframe = '1m';
+        
+        // Trading & Account State
+        let accountBalance = 100000.00;
+        let accountEquity = 100000.00;
+        let initialBalance = 100000.00;
+        let currentOrderType = 'BUY'; // 'BUY' or 'SELL'
+        let activePosition = null;
+        let tradeHistory = [];
+
+        // Dynamic Chart Line Markers
+        let slPriceLine = null;
+        let tpPriceLine = null;
+        let entryPriceLine = null;
+
+        // Initialize Lucide Icons & Chart on Load
+        window.onload = function() {
+            lucide.createIcons();
+            initChart();
+            generateHistoricalData();
+            resetReplay();
+            updateCalculatedSizing();
+
+            // Hotkey Event Listeners
+            document.addEventListener('keydown', function(e) {
+                if (e.code === 'ArrowRight') {
+                    stepForward();
+                } else if (e.code === 'Space') {
+                    e.preventDefault();
+                    togglePlay();
+                }
+            });
+        };
+
+        // Initialize TradingView Lightweight Chart Engine
+        function initChart() {
+            const container = document.getElementById('chartContainer');
+            chart = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: container.clientHeight,
+                layout: {
+                    backgroundColor: '#090D16',
+                    textColor: '#9CA3AF',
+                },
+                grid: {
+                    vertLines: { color: '#1F2937' },
+                    horzLines: { color: '#1F2937' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                rightPriceScale: {
+                    borderColor: '#374151',
+                    scaleMargins: { top: 0.1, bottom: 0.2 },
+                },
+                timeScale: {
+                    borderColor: '#374151',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+            });
+
+            candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#10b981',
+                downColor: '#ef4444',
+                borderVisible: false,
+                wickUpColor: '#10b981',
+                wickDownColor: '#ef4444',
+            });
+
+            // Window Resize Handler
+            window.addEventListener('resize', () => {
+                chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+            });
+        }
+
+        // Realistic Intraday Market Data Simulator (OHLCV)
+        function generateHistoricalData() {
+            historicalRawData = [];
+            let price = 18000.00; // Base index price
+            let now = new Date(2026, 0, 1, 9, 30);
+            
+            for (let i = 0; i < 800; i++) {
+                const open = price;
+                const volatility = (Math.random() - 0.49) * 12; // Organic micro-trend bias
+                const high = open + Math.random() * 8 + Math.max(0, volatility);
+                const low = open - Math.random() * 8 + Math.min(0, volatility);
+                const close = Math.max(low, Math.min(high, open + volatility));
+                
+                historicalRawData.push({
+                    time: Math.floor(now.getTime() / 1000),
+                    open: parseFloat(open.toFixed(2)),
+                    high: parseFloat(high.toFixed(2)),
+                    low: parseFloat(low.toFixed(2)),
+                    close: parseFloat(close.toFixed(2)),
+                });
+
+                price = close;
+                now = new Date(now.getTime() + 60000); // Step 1 minute forward
+            }
+        }
+
+        // Reset Bar Replay back to starting state
+        function resetReplay() {
+            pauseReplay();
+            currentIndex = 50; // Initial seed window of 50 candles
+            replayedBars = historicalRawData.slice(0, currentIndex);
+            candlestickSeries.setData(replayedBars);
+            updateOHLCDisplay(replayedBars[replayedBars.length - 1]);
+            updateCalculatedSizing();
+            chart.timeScale().fitContent();
+        }
+
+        // Play/Pause Replay Controls
+        function togglePlay() {
+            if (isPlaying) {
+                pauseReplay();
+            } else {
+                startReplay();
+            }
+        }
+
+        function startReplay() {
+            if (currentIndex >= historicalRawData.length) return;
+            isPlaying = true;
+            document.getElementById('playIcon').setAttribute('data-lucide', 'pause');
+            lucide.createIcons();
+            
+            playInterval = setInterval(() => {
+                stepForward();
+                if (currentIndex >= historicalRawData.length) {
+                    pauseReplay();
+                }
+            }, speedMs);
+        }
+
+        function pauseReplay() {
+            isPlaying = false;
+            if (playInterval) clearInterval(playInterval);
+            document.getElementById('playIcon').setAttribute('data-lucide', 'play');
+            lucide.createIcons();
+        }
+
+        function changeSpeed(val) {
+            speedMs = parseInt(val);
+            if (isPlaying) {
+                pauseReplay();
+                startReplay();
+            }
+        }
+
+        function changeTimeframe(tf) {
+            document.querySelectorAll('.tf-btn').forEach(btn => btn.classList.remove('active', 'text-white', 'bg-dark-600'));
+            const activeBtn = document.getElementById(`tf-${tf}`);
+            if (activeBtn) activeBtn.classList.add('active', 'text-white', 'bg-dark-600');
+            timeframe = tf;
+            // Simulated timeframe refresh
+            resetReplay();
+        }
+
+        // Step Forward by 1 Candle Bar
+        function stepForward() {
+            if (currentIndex < historicalRawData.length) {
+                const newBar = historicalRawData[currentIndex];
+                replayedBars.push(newBar);
+                candlestickSeries.update(newBar);
+                currentIndex++;
+
+                updateOHLCDisplay(newBar);
+                checkActivePositionFills(newBar);
+                updateCalculatedSizing();
+            }
+        }
+
+        // Update OHLC Bar Header Display
+        function updateOHLCDisplay(bar) {
+            if (!bar) return;
+            const dateStr = new Date(bar.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            document.getElementById('ohlcTimestamp').innerText = `Time: ${dateStr}`;
+            document.getElementById('ohlcOpen').innerText = `O: ${bar.open.toFixed(2)}`;
+            document.getElementById('ohlcHigh').innerText = `H: ${bar.high.toFixed(2)}`;
+            document.getElementById('ohlcLow').innerText = `L: ${bar.low.toFixed(2)}`;
+            document.getElementById('ohlcClose').innerText = `C: ${bar.close.toFixed(2)}`;
+            document.getElementById('currentMarketPrice').innerText = bar.close.toFixed(2);
+        }
+
+        // Position Sizing & Risk Management Logic
+        function setPositionType(type) {
+            currentOrderType = type;
+            const longBtn = document.getElementById('posLongBtn');
+            const shortBtn = document.getElementById('posShortBtn');
+            const executeBtn = document.getElementById('executeOrderBtn');
+
+            if (type === 'BUY') {
+                longBtn.className = "py-2 rounded font-bold text-sm transition flex items-center justify-center space-x-1 bg-green-600 text-white shadow";
+                shortBtn.className = "py-2 rounded font-bold text-sm transition flex items-center justify-center space-x-1 text-gray-400 hover:text-white";
+                executeBtn.className = "w-full py-3 rounded-lg font-extrabold text-sm tracking-wider uppercase transition shadow-lg bg-green-600 hover:bg-green-500 text-white flex items-center justify-center space-x-2";
+            } else {
+                shortBtn.className = "py-2 rounded font-bold text-sm transition flex items-center justify-center space-x-1 bg-red-600 text-white shadow";
+                longBtn.className = "py-2 rounded font-bold text-sm transition flex items-center justify-center space-x-1 text-gray-400 hover:text-white";
+                executeBtn.className = "w-full py-3 rounded-lg font-extrabold text-sm tracking-wider uppercase transition shadow-lg bg-red-600 hover:bg-red-500 text-white flex items-center justify-center space-x-2";
+            }
+            updateCalculatedSizing();
+        }
+
+        function updateCalculatedSizing() {
+            if (replayedBars.length === 0) return;
+            const currentPrice = replayedBars[replayedBars.length - 1].close;
+            const slPts = parseFloat(document.getElementById('slPoints').value) || 1;
+            const tpPts = parseFloat(document.getElementById('tpPoints').value) || 1;
+            
+            // Calculate SL / TP Target Prices
+            let slPrice, tpPrice;
+            if (currentOrderType === 'BUY') {
+                slPrice = currentPrice - slPts;
+                tpPrice = currentPrice + tpPts;
+            } else {
+                slPrice = currentPrice + slPts;
+                tpPrice = currentPrice - tpPts;
+            }
+
+            document.getElementById('slPriceCalculated').innerText = `SL: ${slPrice.toFixed(2)}`;
+            document.getElementById('tpPriceCalculated').innerText = `TP: ${tpPrice.toFixed(2)}`;
+
+            // Risk calculation
+            const riskMode = document.querySelector('input[name="riskType"]:checked').value;
+            const riskInput = parseFloat(document.getElementById('riskInputValue').value) || 0;
+            let riskDollarAmount = 0;
+
+            if (riskMode === 'percent') {
+                riskDollarAmount = (accountBalance * (riskInput / 100));
+            } else {
+                riskDollarAmount = riskInput;
+            }
+
+            document.getElementById('riskCalculatedDollars').innerText = `$${riskDollarAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+            // R:R Calculation
+            const rr = (tpPts / slPts).toFixed(2);
+            document.getElementById('rrRatioDisplay').innerText = `1 : ${rr}`;
+        }
+
+        // Execute Long/Short Market Order
+        function executeMarketOrder() {
+            if (activePosition) {
+                alert("An active position is already open! Close it before opening a new trade.");
+                return;
+            }
+
+            const entryPrice = replayedBars[replayedBars.length - 1].close;
+            const slPts = parseFloat(document.getElementById('slPoints').value);
+            const tpPts = parseFloat(document.getElementById('tpPoints').value);
+            
+            const riskMode = document.querySelector('input[name="riskType"]:checked').value;
+            const riskInput = parseFloat(document.getElementById('riskInputValue').value);
+            const riskDollars = riskMode === 'percent' ? (accountBalance * (riskInput / 100)) : riskInput;
+
+            let slPrice = currentOrderType === 'BUY' ? entryPrice - slPts : entryPrice + slPts;
+            let tpPrice = currentOrderType === 'BUY' ? entryPrice + tpPts : entryPrice - tpPts;
+
+            activePosition = {
+                type: currentOrderType,
+                entryPrice: entryPrice,
+                slPrice: slPrice,
+                tpPrice: tpPrice,
+                riskDollars: riskDollars,
+                slPoints: slPts,
+                tpPoints: tpPts,
+                entryTime: replayedBars[replayedBars.length - 1].time
+            };
+
+            // Render Price Lines on Chart
+            renderPositionLines();
+
+            // UI Updates
+            document.getElementById('activePositionBox').classList.remove('hidden');
+            document.getElementById('activePosType').innerText = activePosition.type;
+            document.getElementById('activePosType').className = `font-bold px-2 py-0.5 rounded text-white text-[10px] uppercase ${activePosition.type === 'BUY' ? 'bg-green-600' : 'bg-red-600'}`;
+            document.getElementById('activePosEntry').innerText = activePosition.entryPrice.toFixed(2);
+            document.getElementById('activePosSL').innerText = activePosition.slPrice.toFixed(2);
+            document.getElementById('activePosTP').innerText = activePosition.tpPrice.toFixed(2);
+        }
+
+        // Draw SL, TP, and Entry Horizontal Lines on Chart
+        function renderPositionLines() {
+            removePositionLines();
+            if (!activePosition) return;
+
+            entryPriceLine = candlestickSeries.createPriceLine({
+                price: activePosition.entryPrice,
+                color: '#06b6d4',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'ENTRY',
+            });
+
+            slPriceLine = candlestickSeries.createPriceLine({
+                price: activePosition.slPrice,
+                color: '#ef4444',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'STOP LOSS',
+            });
+
+            tpPriceLine = candlestickSeries.createPriceLine({
+                price: activePosition.tpPrice,
+                color: '#10b981',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'TAKE PROFIT',
+            });
+        }
+
+        function removePositionLines() {
+            if (entryPriceLine) candlestickSeries.removePriceLine(entryPriceLine);
+            if (slPriceLine) candlestickSeries.removePriceLine(slPriceLine);
+            if (tpPriceLine) candlestickSeries.removePriceLine(tpPriceLine);
+            entryPriceLine = null;
+            slPriceLine = null;
+            tpPriceLine = null;
+        }
+
+        // Real-Time Trade Check against Candle High/Low
+        function checkActivePositionFills(bar) {
+            if (!activePosition) return;
+
+            // Calculate live unrealized PnL
+            let currentPrice = bar.close;
+            let diff = activePosition.type === 'BUY' ? currentPrice - activePosition.entryPrice : activePosition.entryPrice - currentPrice;
+            let rMultipleLive = (diff / activePosition.slPoints).toFixed(2);
+            let unrealizedPnL = activePosition.riskDollars * (diff / activePosition.slPoints);
+            
+            document.getElementById('activePosUnrealizedPnL').innerText = `$${unrealizedPnL.toFixed(2)} (${rMultipleLive}R)`;
+            document.getElementById('activePosUnrealizedPnL').className = `font-mono font-bold ${unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`;
+            
+            accountEquity = accountBalance + unrealizedPnL;
+            document.getElementById('accountEquity').innerText = `$${accountEquity.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+            // Check SL/TP Hits
+            if (activePosition.type === 'BUY') {
+                if (bar.low <= activePosition.slPrice) {
+                    closeActivePosition('Stop Loss Hit', activePosition.slPrice);
+                } else if (bar.high >= activePosition.tpPrice) {
+                    closeActivePosition('Take Profit Hit', activePosition.tpPrice);
+                }
+            } else { // SELL Position
+                if (bar.high >= activePosition.slPrice) {
+                    closeActivePosition('Stop Loss Hit', activePosition.slPrice);
+                } else if (bar.low <= activePosition.tpPrice) {
+                    closeActivePosition('Take Profit Hit', activePosition.tpPrice);
+                }
+            }
+        }
+
+        // Close Active Trade & Log to Journal
+        function closeActivePosition(reason, exitPriceOverride = null) {
+            if (!activePosition) return;
+
+            const currentPrice = exitPriceOverride || replayedBars[replayedBars.length - 1].close;
+            let diff = activePosition.type === 'BUY' ? currentPrice - activePosition.entryPrice : activePosition.entryPrice - currentPrice;
+            let rMultiple = (diff / activePosition.slPoints);
+            let pnlDollars = activePosition.riskDollars * rMultiple;
+
+            // Update Account Balance
+            accountBalance += pnlDollars;
+            accountEquity = accountBalance;
+            document.getElementById('accountBalance').innerText = `$${accountBalance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            document.getElementById('accountEquity').innerText = `$${accountEquity.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+            // Log Trade Object
+            const completedTrade = {
+                id: tradeHistory.length + 1,
+                type: activePosition.type,
+                entryPrice: activePosition.entryPrice,
+                slPrice: activePosition.slPrice,
+                tpPrice: activePosition.tpPrice,
+                exitPrice: currentPrice,
+                pnlDollars: pnlDollars,
+                rMultiple: rMultiple,
+                result: pnlDollars > 0 ? 'WIN' : (pnlDollars < 0 ? 'LOSS' : 'BE'),
+                reason: reason
+            };
+
+            tradeHistory.push(completedTrade);
+            
+            // Clean up lines and reset active state
+            removePositionLines();
+            activePosition = null;
+            document.getElementById('activePositionBox').classList.add('hidden');
+
+            // Refresh UI Analytics & Table
+            updateTradeJournalTable();
+            updateAnalyticsSummary();
+        }
+
+        // Populate Trade Log Table
+        function updateTradeJournalTable() {
+            const tableBody = document.getElementById('tradeLogTable');
+            if (tradeHistory.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-gray-500 italic">No trades taken yet.</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = tradeHistory.slice().reverse().map(t => `
+                <tr class="hover:bg-dark-700/50 transition border-b border-gray-800">
+                    <td class="py-2.5 px-3 font-semibold text-gray-400">#${t.id}</td>
+                    <td class="py-2.5 px-3 font-bold ${t.type === 'BUY' ? 'text-green-400' : 'text-red-400'}">${t.type}</td>
+                    <td class="py-2.5 px-3">${t.entryPrice.toFixed(2)}</td>
+                    <td class="py-2.5 px-3 text-red-400">${t.slPrice.toFixed(2)}</td>
+                    <td class="py-2.5 px-3 text-green-400">${t.tpPrice.toFixed(2)}</td>
+                    <td class="py-2.5 px-3">${t.exitPrice.toFixed(2)}</td>
+                    <td class="py-2.5 px-3 font-bold ${t.pnlDollars >= 0 ? 'text-green-400' : 'text-red-400'}">
+                        ${t.pnlDollars >= 0 ? '+' : ''}$${t.pnlDollars.toFixed(2)}
+                    </td>
+                    <td class="py-2.5 px-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${t.result === 'WIN' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}">
+                            ${t.result}
+                        </span>
+                    </td>
+                    <td class="py-2.5 px-3 font-bold ${t.rMultiple >= 0 ? 'text-green-400' : 'text-red-400'}">
+                        ${t.rMultiple >= 0 ? '+' : ''}${t.rMultiple.toFixed(2)}R
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Calculate Performance & Risk Analytics
+        function updateAnalyticsSummary() {
+            const totalTrades = tradeHistory.length;
+            if (totalTrades === 0) return;
+
+            const wins = tradeHistory.filter(t => t.pnlDollars > 0);
+            const losses = tradeHistory.filter(t => t.pnlDollars < 0);
+            
+            const winRate = ((wins.length / totalTrades) * 100).toFixed(1);
+            
+            const grossProfit = wins.reduce((acc, t) => acc + t.pnlDollars, 0);
+            const grossLoss = Math.abs(losses.reduce((acc, t) => acc + t.pnlDollars, 0));
+            const profitFactor = grossLoss === 0 ? grossProfit.toFixed(2) : (grossProfit / grossLoss).toFixed(2);
+            
+            const netPnL = tradeHistory.reduce((acc, t) => acc + t.pnlDollars, 0);
+
+            // Calculate Max Drawdown %
+            let peak = initialBalance;
+            let maxDD = 0;
+            let runningBalance = initialBalance;
+
+            tradeHistory.forEach(t => {
+                runningBalance += t.pnlDollars;
+                if (runningBalance > peak) peak = runningBalance;
+                let dd = (peak - runningBalance) / peak;
+                if (dd > maxDD) maxDD = dd;
+            });
+
+            document.getElementById('statTotalTrades').innerText = totalTrades;
+            document.getElementById('statWinRate').innerText = `${winRate}%`;
+            document.getElementById('statProfitFactor').innerText = profitFactor;
+            document.getElementById('statMaxDD').innerText = `${(maxDD * 100).toFixed(1)}%`;
+            
+            const netPnLElem = document.getElementById('statNetPnL');
+            netPnLElem.innerText = `${netPnL >= 0 ? '+' : ''}$${netPnL.toFixed(2)}`;
+            netPnLElem.className = `font-bold ${netPnL >= 0 ? 'text-green-400' : 'text-red-400'}`;
+        }
+
+        // Reset Account & Journal State
+        function resetAccount() {
+            if (confirm("Are you sure you want to reset your account balance and clear all trade history?")) {
+                accountBalance = initialBalance;
+                accountEquity = initialBalance;
+                tradeHistory = [];
+                activePosition = null;
+                removePositionLines();
+                
+                document.getElementById('accountBalance').innerText = `$${accountBalance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                document.getElementById('accountEquity').innerText = `$${accountEquity.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                document.getElementById('activePositionBox').classList.add('hidden');
+                
+                updateTradeJournalTable();
+                
+                document.getElementById('statTotalTrades').innerText = '0';
+                document.getElementById('statWinRate').innerText = '0.0%';
+                document.getElementById('statProfitFactor').innerText = '0.00';
+                document.getElementById('statMaxDD').innerText = '0.0%';
+                document.getElementById('statNetPnL').innerText = '$0.00';
+                document.getElementById('statNetPnL').className = 'text-white';
+
+                resetReplay();
+            }
+        }
+    </script>
+</body>
+</html>
